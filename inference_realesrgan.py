@@ -1,4 +1,5 @@
 import argparse
+from contextlib import nullcontext
 import cv2
 import glob
 import os
@@ -8,6 +9,12 @@ from basicsr.utils.download_util import load_file_from_url
 from realesrgan import RealESRGANer
 from realesrgan.archs.srvgg_arch import SRVGGNetCompact
 
+import numpy as np
+
+import torch
+
+# import pyjion
+# pyjion.config(level=2)
 
 def main():
     """Inference demo for Real-ESRGAN.
@@ -22,6 +29,7 @@ def main():
         help=('Model names: RealESRGAN_x4plus | RealESRNet_x4plus | RealESRGAN_x4plus_anime_6B | RealESRGAN_x2plus | '
               'realesr-animevideov3 | realesr-general-x4v3'))
     parser.add_argument('-o', '--output', type=str, default='results', help='Output folder')
+    parser.add_argument('-w', '--width', type=int, default=0, help='Output width (ignore scale if set)')
     parser.add_argument(
         '-dn',
         '--denoise_strength',
@@ -84,6 +92,10 @@ def main():
             'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth'
         ]
 
+    # Print all arguments
+    # for arg in vars(args):
+    #     print(arg, getattr(args, arg))
+
     # determine model paths
     if args.model_path is not None:
         model_path = args.model_path
@@ -130,36 +142,54 @@ def main():
     else:
         paths = sorted(glob.glob(os.path.join(args.input, '*')))
 
+    # # Enable Tensor cores for FP16
+    # if not args.fp32:
+    #     torch.backends.cudnn.enabled = True
+
     for idx, path in enumerate(paths):
         imgname, extension = os.path.splitext(os.path.basename(path))
-        print('Testing', idx, imgname)
 
-        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        # Workaround for cv2.imread() bug with unicode paths
+        # img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+
+        img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        print('    Testing', idx, imgname + extension, "shape:", img.shape)
+
         if len(img.shape) == 3 and img.shape[2] == 4:
             img_mode = 'RGBA'
         else:
             img_mode = None
+        with torch.cuda.amp.autocast() if torch.cuda.is_available() and not args.fp32 else nullcontext():
+            try:
+                if args.face_enhance:
+                    _, _, output = face_enhancer.enhance(img, has_aligned=False, only_center_face=False, paste_back=True)
+                else:
+                    scale = args.outscale
+                    if args.width != 0:
+                        scale = int(round(args.width / img.shape[1]))
+                    if scale < 1:
+                        scale = 1
+                    if scale > netscale:
+                        scale = netscale
+                    output, _ = upsampler.enhance(img, outscale=scale)
+            except RuntimeError as error:
+                print('Error', error)
+                print('If you encounter CUDA out of memory, try to set --tile with a smaller number.')
+            else:
+                if args.ext == 'auto':
+                    extension = extension[1:]
+                else:
+                    extension = args.ext
+                if img_mode == 'RGBA':  # RGBA images should be saved in png format
+                    extension = 'png'
+                if args.suffix == '':
+                    save_path = os.path.join(args.output, f'{imgname}.{extension}')
+                else:
+                    save_path = os.path.join(args.output, f'{imgname}_{args.suffix}.{extension}')
 
-        try:
-            if args.face_enhance:
-                _, _, output = face_enhancer.enhance(img, has_aligned=False, only_center_face=False, paste_back=True)
-            else:
-                output, _ = upsampler.enhance(img, outscale=args.outscale)
-        except RuntimeError as error:
-            print('Error', error)
-            print('If you encounter CUDA out of memory, try to set --tile with a smaller number.')
-        else:
-            if args.ext == 'auto':
-                extension = extension[1:]
-            else:
-                extension = args.ext
-            if img_mode == 'RGBA':  # RGBA images should be saved in png format
-                extension = 'png'
-            if args.suffix == '':
-                save_path = os.path.join(args.output, f'{imgname}.{extension}')
-            else:
-                save_path = os.path.join(args.output, f'{imgname}_{args.suffix}.{extension}')
-            cv2.imwrite(save_path, output)
+                # Workaround for cv2.imwrite() bug with unicode paths
+                # cv2.imwrite(save_path, output)
+                cv2.imencode('.' + extension, output)[1].tofile(save_path)
 
 
 if __name__ == '__main__':
