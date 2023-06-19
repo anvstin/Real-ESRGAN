@@ -189,8 +189,19 @@ def main():
 
                 # Workaround for cv2.imwrite() bug with unicode paths
                 # cv2.imwrite(save_path, output)
-                cv2.imencode('.' + extension, output)[1].tofile(save_path)
 
+                # cv2.imencode('.' + extension, output)[1].tofile(save_path)
+                # Same but split images if too large for cv2 (65500 pixels)
+                if output.shape[0] > 65500:
+                    # Keep the same width and split the height
+                    nb_split = int(np.ceil(output.shape[0] / 65500))
+                    split_size = int(np.ceil(output.shape[0] / nb_split))
+                    print("     Warning: image too large for cv2.imwrite(). Splitting into", nb_split, "images.")
+                    for i in range(nb_split):
+                        split = output[i * split_size:(i + 1) * split_size, :, :]
+                        cv2.imencode('.' + extension, split)[1].tofile(save_path.replace('.' + extension, f'_{i}.' + extension))
+                else:
+                    cv2.imencode('.' + extension, output)[1].tofile(save_path)
 
 if __name__ == '__main__':
     main()
