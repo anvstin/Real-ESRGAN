@@ -151,8 +151,15 @@ def main():
 
         # Workaround for cv2.imread() bug with unicode paths
         # img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-
-        img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        if path.endswith('.gif'):
+            import imageio
+            np_arr =  imageio.mimread(path, memtest=False)[0]
+            img = cv2.cvtColor(np_arr, cv2.COLOR_RGB2BGR)
+        else:
+            img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        if img is None:
+            print('Cannot read', path)
+            continue
         print('    Testing', idx, imgname + extension, "shape:", img.shape)
 
         if len(img.shape) == 3 and img.shape[2] == 4:
