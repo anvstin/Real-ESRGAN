@@ -151,10 +151,23 @@ def main():
 
         # Workaround for cv2.imread() bug with unicode paths
         # img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        # Use of PIL instead of cv2 to read images
         if path.endswith('.gif'):
             import imageio
             np_arr =  imageio.mimread(path, memtest=False)[0]
             img = cv2.cvtColor(np_arr, cv2.COLOR_RGB2BGR)
+        elif path.endswith('.webp'):
+            # Check that it is not an animated webp. If it is extract the first frame.
+            import PIL, PIL.features, PIL.Image
+            try:
+                img = PIL.Image.open(path)
+            except Exception as e:
+                assert PIL.features.check("webp_anim"), "webp_anim not available. Please install webp library (on conda: conda install -c conda-forge libwebp)"
+                raise e
+            if img.is_animated:
+                img.seek(0)
+            img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+
         else:
             img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
         if img is None:
