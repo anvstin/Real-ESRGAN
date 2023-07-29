@@ -10,11 +10,81 @@ from realesrgan import RealESRGANer
 from realesrgan.archs.srvgg_arch import SRVGGNetCompact
 
 import numpy as np
+import imageio
+import PIL, PIL.features, PIL.Image
 
 import torch
+# ASYNC
+import threading
+
 
 # import pyjion
 # pyjion.config(level=2)
+
+class image_iterator:
+    def __init__(self, paths, preload_count=2):
+        self.paths = paths
+        self.idx = 0
+        self.preload_count = preload_count
+        self.thread_list = [
+            threading.Thread(target=self.thread_load_image, args=(idx,)) for idx in range(len(self.paths))
+        ]
+
+        self.thread_values = {idx: None for idx in range(len(self.paths))}
+        if preload_count > 1:
+            self.preload()
+
+    def preload(self):
+        for idx in range(self.idx, min(self.idx + self.preload_count, len(self.paths))):
+            if self.thread_values[idx] is not None or self.thread_list[idx].is_alive():
+                continue
+            self.thread_list[idx].start()
+
+    def thread_load_image(self, idx):
+        path = self.paths[idx]
+        img = self.preload_image(path)
+        self.thread_values[idx] = img
+
+
+    def preload_image(self, path):
+        if path.endswith('.gif'):
+            np_arr =  imageio.mimread(path, memtest=False)[0]
+            img = cv2.cvtColor(np_arr, cv2.COLOR_RGB2BGR)
+        elif path.endswith('.webp'):
+            # Check that it is not an animated webp. If it is extract the first frame.
+            try:
+                img = PIL.Image.open(path)
+            except Exception as e:
+                assert PIL.features.check("webp_anim"), "webp_anim not available. Please install webp library (on conda: conda install -c conda-forge libwebp)"
+                raise e
+            if img.is_animated:
+                img.seek(0)
+            img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+
+        else:
+            img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+
+        return img
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self.preload()
+        if self.idx >= len(self.paths):
+            raise StopIteration
+        idx = self.idx
+        path = self.paths[idx]
+
+        async_img = self.thread_list[idx]
+        async_img.join()
+
+        img = self.thread_values[idx]
+        self.thread_values[idx] = None
+
+        self.idx += 1
+
+        return idx, path, img
 
 def main():
     """Inference demo for Real-ESRGAN.
@@ -145,31 +215,30 @@ def main():
     # # Enable Tensor cores for FP16
     # if not args.fp32:
     #     torch.backends.cudnn.enabled = True
+    # Estimate number of cached images according to their file size
+    average_size = 0
+    for path in paths:
+        average_size += os.path.getsize(path)
+    average_size /= len(paths)
+    # 500MB of cached images
+    size_limit = 500 * 1024 * 1024
+    preload_count = int(size_limit / average_size)
+    if preload_count < 2:
+        preload_count = 2
+    # Limit to the number of images
+    preload_count = min(preload_count, len(paths))
 
-    for idx, path in enumerate(paths):
+    print('Preloading', preload_count, 'images')
+
+    img_data_it = image_iterator(paths)
+
+    for idx, path, img in img_data_it:
         imgname, extension = os.path.splitext(os.path.basename(path))
 
         # Workaround for cv2.imread() bug with unicode paths
         # img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         # Use of PIL instead of cv2 to read images
-        if path.endswith('.gif'):
-            import imageio
-            np_arr =  imageio.mimread(path, memtest=False)[0]
-            img = cv2.cvtColor(np_arr, cv2.COLOR_RGB2BGR)
-        elif path.endswith('.webp'):
-            # Check that it is not an animated webp. If it is extract the first frame.
-            import PIL, PIL.features, PIL.Image
-            try:
-                img = PIL.Image.open(path)
-            except Exception as e:
-                assert PIL.features.check("webp_anim"), "webp_anim not available. Please install webp library (on conda: conda install -c conda-forge libwebp)"
-                raise e
-            if img.is_animated:
-                img.seek(0)
-            img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
-        else:
-            img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
         if img is None:
             print('Cannot read', path)
             continue
