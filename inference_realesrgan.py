@@ -16,8 +16,7 @@ import PIL, PIL.features, PIL.Image
 import torch
 # ASYNC
 import threading
-
-
+from multiprocessing.pool import ThreadPool
 # import pyjion
 # pyjion.config(level=2)
 
@@ -231,7 +230,7 @@ def main():
     print('Preloading', preload_count, 'images')
 
     img_data_it = image_iterator(paths)
-
+    tasks = []
     for idx, path, img in img_data_it:
         imgname, extension = os.path.splitext(os.path.basename(path))
 
@@ -264,33 +263,44 @@ def main():
             except RuntimeError as error:
                 print('Error', error)
                 print('If you encounter CUDA out of memory, try to set --tile with a smaller number.')
+                exit(-1)
+
+            if args.ext == 'auto':
+                extension = extension[1:]
             else:
-                if args.ext == 'auto':
-                    extension = extension[1:]
-                else:
-                    extension = args.ext
-                if img_mode == 'RGBA':  # RGBA images should be saved in png format
-                    extension = 'png'
-                if args.suffix == '':
-                    save_path = os.path.join(args.output, f'{imgname}.{extension}')
-                else:
-                    save_path = os.path.join(args.output, f'{imgname}_{args.suffix}.{extension}')
+                extension = args.ext
+            if img_mode == 'RGBA':  # RGBA images should be saved in png format
+                extension = 'png'
+            if args.suffix == '':
+                save_path = os.path.join(args.output, f'{imgname}.{extension}')
+            else:
+                save_path = os.path.join(args.output, f'{imgname}_{args.suffix}.{extension}')
+            tasks.append(save_image_async(save_path, output, extension))
+    for task in tasks:
+        task.join()
 
-                # Workaround for cv2.imwrite() bug with unicode paths
-                # cv2.imwrite(save_path, output)
 
-                # cv2.imencode('.' + extension, output)[1].tofile(save_path)
-                # Same but split images if too large for cv2 (65500 pixels)
-                if output.shape[0] > 65500:
-                    # Keep the same width and split the height
-                    nb_split = int(np.ceil(output.shape[0] / 65500))
-                    split_size = int(np.ceil(output.shape[0] / nb_split))
-                    print("     Warning: image too large for cv2.imwrite(). Splitting into", nb_split, "images.")
-                    for i in range(nb_split):
-                        split = output[i * split_size:(i + 1) * split_size, :, :]
-                        cv2.imencode('.' + extension, split)[1].tofile(save_path.replace('.' + extension, f'_{i}.' + extension))
-                else:
-                    cv2.imencode('.' + extension, output)[1].tofile(save_path)
+def save_image(save_path, output, extension):
+    # Workaround for cv2.imwrite() bug with unicode paths
+    # cv2.imwrite(save_path, output)
+
+    # cv2.imencode('.' + extension, output)[1].tofile(save_path)
+    # Same but split images if too large for cv2 (65500 pixels)
+    if output.shape[0] > 65500:
+        # Keep the same width and split the height
+        nb_split = int(np.ceil(output.shape[0] / 65500))
+        split_size = int(np.ceil(output.shape[0] / nb_split))
+        print("     Warning: image too large for cv2.imwrite(). Splitting into", nb_split, "images.")
+        for i in range(nb_split):
+            split = output[i * split_size:(i + 1) * split_size, :, :]
+            cv2.imencode('.' + extension, split)[1].tofile(save_path.replace('.' + extension, f'_{i}.' + extension))
+    else:
+        cv2.imencode('.' + extension, output)[1].tofile(save_path)
+
+def save_image_async(save_path, output, extension):
+    res = threading.Thread(target=save_image, args=(save_path, output, extension))
+    res.start()
+    return res
 
 if __name__ == '__main__':
     main()
