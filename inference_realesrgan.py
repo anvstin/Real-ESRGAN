@@ -17,26 +17,34 @@ import torch
 # ASYNC
 import threading
 from multiprocessing.pool import ThreadPool
+import shutil
 # import pyjion
 # pyjion.config(level=2)
 
 class image_iterator:
-    def __init__(self, paths, preload_count=2):
+    def __init__(self, paths, preload_count=2, sync=False):
         self.paths = paths
         self.idx = 0
         self.preload_count = preload_count
         self.thread_list = [
             threading.Thread(target=self.thread_load_image, args=(idx,)) for idx in range(len(self.paths))
         ]
+        self.started = [False for idx in range(len(self.paths))]
 
-        self.thread_values = {idx: None for idx in range(len(self.paths))}
+        self.thread_values = [ None for idx in range(len(self.paths)) ]
+        self.sync = sync
+
         if preload_count > 1:
-            self.preload()
+            if sync:
+                self.preload_sync()
+            else:
+                self.preload()
 
     def preload(self):
         for idx in range(self.idx, min(self.idx + self.preload_count, len(self.paths))):
-            if self.thread_values[idx] is not None or self.thread_list[idx].is_alive():
+            if self.thread_values[idx] is not None or self.thread_list[idx].is_alive() or self.started[idx]:
                 continue
+            self.started[idx] = True
             self.thread_list[idx].start()
 
     def thread_load_image(self, idx):
@@ -44,8 +52,17 @@ class image_iterator:
         img = self.preload_image(path)
         self.thread_values[idx] = img
 
+    def preload_sync(self):
+        for idx in range(self.idx, min(self.idx + self.preload_count, len(self.paths))):
+            if self.thread_values[idx] is not None or self.thread_list[idx].is_alive() or self.started[idx]:
+                continue
+            self.started[idx] = True
+            self.thread_load_image(idx)
 
     def preload_image(self, path):
+        img = None
+        if path.endswith('.xml'):
+            return None
         if path.endswith('.gif'):
             np_arr =  imageio.mimread(path, memtest=False)[0]
             img = cv2.cvtColor(np_arr, cv2.COLOR_RGB2BGR)
@@ -60,9 +77,26 @@ class image_iterator:
                 img.seek(0)
             img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
-        else:
-            img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        if img is None:
+            try:
+                img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+            except Exception as e:
+                print("OpenCV cannot read", path)
+        if img is None:
+            try:
+                img_pil = PIL.Image.open(path)
+                img = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+            except Exception as e:
+                print("PIL cannot read", path)
+        if img is None:
+            try:
+                img_imageio = imageio.imread(path)
+                img = cv2.cvtColor(img_imageio, cv2.COLOR_RGB2BGR)
+            except Exception as e:
+                print("imageio cannot read", path)
 
+        if img is None:
+            raise Exception("Cannot read", path)
         return img
 
     def __iter__(self):
@@ -74,9 +108,9 @@ class image_iterator:
             raise StopIteration
         idx = self.idx
         path = self.paths[idx]
-
-        async_img = self.thread_list[idx]
-        async_img.join()
+        if not self.sync:
+            async_img = self.thread_list[idx]
+            async_img.join()
 
         img = self.thread_values[idx]
         self.thread_values[idx] = None
@@ -237,6 +271,11 @@ def main():
         # Workaround for cv2.imread() bug with unicode paths
         # img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         # Use of PIL instead of cv2 to read images
+        if extension.lower() in {'xml', '.xml'}:
+            # Copy xml files
+            print('    Copying', idx, imgname + extension)
+            shutil.copy(path, os.path.join(args.output, imgname + extension))
+            continue
 
         if img is None:
             print('Cannot read', path)
