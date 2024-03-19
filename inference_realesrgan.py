@@ -229,7 +229,6 @@ def main():
         pre_pad=args.pre_pad,
         half=not args.fp32,
         gpu_id=args.gpu_id)
-
     if args.face_enhance:  # Use GFPGAN for face enhancement
         from gfpgan import GFPGANer
         face_enhancer = GFPGANer(
@@ -274,7 +273,7 @@ def main():
         if extension.lower() in {'xml', '.xml'}:
             # Copy xml files
             print('    Copying', idx, imgname + extension)
-            shutil.copy(path, os.path.join(args.output, imgname + extension))
+            shutil.copyfile(path, os.path.join(args.output, imgname + extension))
             continue
 
         if img is None:

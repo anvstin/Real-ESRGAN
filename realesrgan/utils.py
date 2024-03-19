@@ -70,6 +70,7 @@ class RealESRGANer():
         model.load_state_dict(loadnet[keyname], strict=True)
 
         model.eval()
+        self.model = torch.compile(model, mode="max-autotune", fullgraph=True)
         self.model = model.to(self.device)
         if self.half:
             self.model = self.model.half()
@@ -259,6 +260,9 @@ class RealESRGANer():
                     int(w_input * outscale),
                     int(h_input * outscale),
                 ), interpolation=cv2.INTER_LANCZOS4)
+        # Clean up (release GPU memory)
+        del self.img
+        del self.output
 
         return output, img_mode
 
