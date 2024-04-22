@@ -70,7 +70,9 @@ class RealESRGANer():
         model.load_state_dict(loadnet[keyname], strict=True)
 
         model.eval()
-        self.model = torch.compile(model, mode="max-autotune", fullgraph=True)
+        # if linux, compile the model to avoid the first-time slowness
+        if os.name == 'posix':
+            self.model = torch.compile(model, mode="max-autotune", fullgraph=True)
         self.model = model.to(self.device)
         if self.half:
             self.model = self.model.half()
