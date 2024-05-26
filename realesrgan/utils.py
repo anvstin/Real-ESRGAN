@@ -129,10 +129,16 @@ class RealESRGANer():
         output_shape = (batch, channel, output_height, output_width)
 
         # start with black image
-        self.output = self.img.new_zeros(output_shape)
         tiles_x = math.ceil(width / self.tile_size)
         tiles_y = math.ceil(height / self.tile_size)
-        self.output = self.output.cpu() # Reduce GPU memory footprint when images are extra large
+        # If only one tile, process directly
+        if tiles_x == 1 and tiles_y == 1:
+            self.process()
+            return
+
+        self.output = self.img.new_zeros(output_shape) \
+            .cpu() # Reduce GPU memory footprint when images are extra large
+
         # loop over all tiles
         for y in range(tiles_y):
             for x in range(tiles_x):
@@ -164,7 +170,7 @@ class RealESRGANer():
                 except RuntimeError as error:
                     print('Error', error)
                 print(f'\tTile {tile_idx}/{tiles_x * tiles_y}', end='\r')
-                
+
                 del input_tile # Free GPU memory as soon as possible
 
                 # output tile area on total image
