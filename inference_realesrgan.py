@@ -279,7 +279,7 @@ def main():
         if img is None:
             print('Cannot read', path)
             continue
-        print('    Testing', idx, imgname + extension, "shape:", img.shape)
+        print('    Testing', idx + 1, imgname + extension, "shape:", img.shape)
 
         if len(img.shape) == 3 and img.shape[2] == 4:
             img_mode = 'RGBA'
@@ -321,6 +321,11 @@ def main():
 def save_image(save_path, output, extension):
     # Workaround for cv2.imwrite() bug with unicode paths
     # cv2.imwrite(save_path, output)
+    params = [
+        cv2.IMWRITE_WEBP_QUALITY, 90,
+        cv2.IMWRITE_JPEG_QUALITY, 95,
+        cv2.IMWRITE_PNG_COMPRESSION, 9,
+    ]
 
     # cv2.imencode('.' + extension, output)[1].tofile(save_path)
     # Same but split images if too large for cv2 (65500 pixels)
@@ -331,9 +336,9 @@ def save_image(save_path, output, extension):
         print("     Warning: image too large for cv2.imwrite(). Splitting into", nb_split, "images.")
         for i in range(nb_split):
             split = output[i * split_size:(i + 1) * split_size, :, :]
-            cv2.imencode('.' + extension, split)[1].tofile(save_path.replace('.' + extension, f'_{i}.' + extension))
+            cv2.imencode('.' + extension, split, params)[1].tofile(save_path.replace('.' + extension, f'_{i}.' + extension))
     else:
-        cv2.imencode('.' + extension, output)[1].tofile(save_path)
+        cv2.imencode('.' + extension, output, params)[1].tofile(save_path)
 
 def save_image_async(save_path, output, extension):
     res = threading.Thread(target=save_image, args=(save_path, output, extension))
