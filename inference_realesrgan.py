@@ -317,16 +317,17 @@ def main():
     for task in tasks:
         task.join()
 
-
-def save_image(save_path, output, extension):
-    # Workaround for cv2.imwrite() bug with unicode paths
-    # cv2.imwrite(save_path, output)
-    params = [
+SAVE_PARAMS = [
         cv2.IMWRITE_WEBP_QUALITY, 90,
         cv2.IMWRITE_JPEG_QUALITY, 95,
         cv2.IMWRITE_PNG_COMPRESSION, 9,
-    ]
+]
 
+def save_image(save_path, output, extension, params=SAVE_PARAMS):
+    # Workaround for cv2.imwrite() bug with unicode paths
+    # cv2.imwrite(save_path, output)
+    if extension == "webp":
+        return save_webp(save_path, output, extension)
     # cv2.imencode('.' + extension, output)[1].tofile(save_path)
     # Same but split images if too large for cv2 (65500 pixels)
     if output.shape[0] > 65500:
@@ -338,7 +339,21 @@ def save_image(save_path, output, extension):
             split = output[i * split_size:(i + 1) * split_size, :, :]
             cv2.imencode('.' + extension, split, params)[1].tofile(save_path.replace('.' + extension, f'_{i}.' + extension))
     else:
-        cv2.imencode('.' + extension, output, params)[1].tofile(save_path)
+        cv2.imencode('.' + extension, output, params=params)[1].tofile(save_path)
+
+def save_webp(save_path, output, extension,  params=SAVE_PARAMS):
+    # Check if the image is above the max size for webp (16383 x 16383)
+    if output.shape[0] > 16383:
+        # Keep the same width and split the height
+        nb_split = int(np.ceil(output.shape[0] / 16383))
+        split_size 	= int(np.ceil(output.shape[0] / nb_split))
+        print("     Warning: image too large for cv2.imwrite(). Splitting into", nb_split, "images.")
+        for i in range(nb_split):
+            split = output[i * split_size:(i + 1) * split_size, :, :]
+            cv2.imencode('.' + extension, split, params=params)[1].tofile(save_path.replace('.' 	+ extension, f'_{i}.' 	+ extension))
+    else:
+        cv2.imencode('.' + extension, output)[1].tofile(save_path)
+
 
 def save_image_async(save_path, output, extension):
     res = threading.Thread(target=save_image, args=(save_path, output, extension))
