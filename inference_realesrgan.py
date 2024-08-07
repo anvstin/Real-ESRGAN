@@ -352,7 +352,7 @@ def save_webp(save_path, output, extension,  params=SAVE_PARAMS):
             split = output[i * split_size:(i + 1) * split_size, :, :]
             cv2.imencode('.' + extension, split, params=params)[1].tofile(save_path.replace('.' 	+ extension, f'_{i}.' 	+ extension))
     else:
-        cv2.imencode('.' + extension, output)[1].tofile(save_path)
+        cv2.imencode('.' + extension, output, params=params)[1].tofile(save_path)
 
 
 def save_image_async(save_path, output, extension):
