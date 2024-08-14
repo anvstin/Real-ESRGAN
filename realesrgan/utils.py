@@ -228,11 +228,14 @@ class RealESRGANer():
 
         # ------------------- process image (without the alpha channel) ------------------- #
         self.pre_process(img)
+        del img # Clean up (release CPU memory)
         if self.tile_size > 0:
             self.tile_process()
         else:
             self.process()
+        del self.img # Clean up (release GPU memory)
         output_img = self.post_process()
+        del self.output # Clean up (release CPU/GPU memory)
         output_img = output_img.data.squeeze().float().cpu().clamp_(0, 1).numpy()
         output_img = np.transpose(output_img[[2, 1, 0], :, :], (1, 2, 0))
         if img_mode == 'L':
@@ -260,19 +263,22 @@ class RealESRGANer():
 
         # ------------------------------ return ------------------------------ #
         if max_range == 65535:  # 16-bit image
-            output = (output_img * 65535.0).round().astype(np.uint16)
+            output_img *= 65535.0
+            np.round(output_img, out=output_img)
+            output_img = output_img.astype(np.uint16)
         else:
-            output = (output_img * 255.0).round().astype(np.uint8)
+            output_img *= 255.0
+            np.round(output_img, out=output_img)
+            output_img = output_img.astype(np.uint8)
 
         if outscale is not None and outscale != float(self.scale):
             output = cv2.resize(
-                output, (
+                output_img, (
                     int(w_input * outscale),
                     int(h_input * outscale),
                 ), interpolation=cv2.INTER_LANCZOS4)
-        # Clean up (release GPU memory)
-        del self.img
-        del self.output
+        # Clean up (release CPU memory)
+        del output_img
 
         return output, img_mode
 
