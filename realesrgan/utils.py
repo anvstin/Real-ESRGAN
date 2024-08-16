@@ -271,6 +271,7 @@ class RealESRGANer():
             np.round(output_img, out=output_img)
             output_img = output_img.astype(np.uint8)
 
+        output = output_img
         if outscale is not None and outscale != float(self.scale):
             output = cv2.resize(
                 output_img, (
@@ -279,6 +280,7 @@ class RealESRGANer():
                 ), interpolation=cv2.INTER_LANCZOS4)
         # Clean up (release CPU memory)
         del output_img
+
 
         return output, img_mode
 
